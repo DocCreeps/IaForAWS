@@ -35,4 +35,30 @@ plt.axis('off')
 plt.imshow(cv2.cvtColor(image_rondoudou, cv2.COLOR_BGR2RGB))
 plt.show()
 
+res = cv2.resize(image_pikachu , dsize=(40,40), interpolation=cv2.INTER_CUBIC)
+print(res.shape)
+res = cv2.cvtColor(res,cv2.COLOR_RGB2GRAY) #TO 3D to 1D
+print(res.shape)
+res = cv2.threshold(res, 127, 255, cv2.THRESH_BINARY)[1]
+d = res
+for row in range(0,40):
+    for col in range(0,40):
+        print('%03d ' %d[row][col],end=' ')
+    print('')
+plt.imshow(cv2.cvtColor(res, cv2.COLOR_BGR2RGB))
+plt.axis('off')
+plt.show()
 
+res2 = cv2.resize(image_rondoudou , dsize=(40,40), interpolation=cv2.INTER_CUBIC)
+print(res2.shape)
+res2 = cv2.cvtColor(res2,cv2.COLOR_RGB2GRAY) #TO 3D to 1D
+print(res2.shape)
+res2 = cv2.threshold(res2, 127, 255, cv2.THRESH_BINARY)[1]
+d = res2
+for row in range(0,40):
+    for col in range(0,40):
+        print('%03d ' %d[row][col],end=' ')
+    print('')
+plt.imshow(cv2.cvtColor(res2, cv2.COLOR_BGR2RGB))
+plt.axis('off')
+plt.show()
