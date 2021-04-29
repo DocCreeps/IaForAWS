@@ -4,192 +4,107 @@ Created on Mon Apr 26 16:07:46 2021
 
 @author: dorian, alexandre
 """
-# import des lib
-import pathlib
-import os
-import cv2
+import boto3
+import sagemaker
+import sh as sh
+from coverage import env, data
+
+session = sagemaker.Session()
+bucket = session.default_bucket()
+
+%env bucket s3://$bucket
+
+
+region_name = boto3.Session().region_name
+algorithm = sagemaker.amazon.amazon_estimator.get_image_uri(region_name, "image-classification", "latest")
+
+print("Using algorithm %s" % algorithm)
+
+%%sh
+wget http://data.mxnet.io/data/caltech-256/caltech-256-60-train.rec
+wget http://data.mxnet.io/data/caltech-256/caltech-256-60-val.rec
+
+session.upload_data(path='caltech-256-60-train.rec', bucket=bucket, key_prefix='train')
+session.upload_data(path='caltech-256-60-val.rec',   bucket=bucket, key_prefix='validation')
+
+s3_train      = 's3://{}/train/'.format(bucket)
+s3_validation = 's3://{}/validation/'.format(bucket)
+s3_output     = 's3://{}/output'.format(bucket)
+
+%env s3_train      $s3_train
+%env s3_validation $s3_validation
+%env s3_output     $s3_output
+
+ %%sh
+aws s3 ls $s3_train
+aws s3 ls $s3_validation
+
+role = sagemaker.get_execution_role()
+
+ic = sagemaker.estimator.Estimator(algorithm,
+                                   role,
+                                   train_instance_count=1,
+                                   train_instance_type='ml.p3.16xlarge',
+                                   output_path=s3_output,
+                                   sagemaker_session=session)
+
+
+ic.set_hyperparameters(num_layers=18,               # Train a Resnet-18 model
+                       use_pretrained_model=1,      # Fine-tune on our dataset
+                       image_shape="3,224,224",   # 3 channels (RGB), 224x224 pixels
+                       num_classes=257,             # 256 classes + 1 clutter class
+                       num_training_samples=15420,  # Number of training samples
+                       mini_batch_size=128,
+                       epochs=10,                  # Learn the training samples 10 times
+                       learning_rate=0.01,
+                       augmentation_type='crop_color_transform' # Add altered images
+                       #precision_dtype='float16'    # Train at half-precision to save memory
+                      )
+
+train_data = sagemaker.session.s3_input(s3_train,
+                                        distribution='FullyReplicated',
+                                        content_type='application/x-recordio',
+                                        s3_data_type='S3Prefix')
+
+validation_data = sagemaker.session.s3_input(s3_validation,
+                                             distribution='FullyReplicated',
+                                             content_type='application/x-recordio',
+                                             s3_data_type='S3Prefix')
+
+data_channels = {'train': train_data, 'validation': validation_data}
+
+ic.fit(inputs=data_channels, logs=True)
+
+ic_predictor = ic.deploy(initial_instance_count=1,
+                         instance_type='ml.c5.2xlarge')
+
+ !wget -O /tmp/test.jpg http://www.vision.caltech.edu/Image_Datasets/Caltech256/images/022.buddha-101/022_0019.jpg
+file_name = '/tmp/test.jpg'
+# test image
+from IPython.display import Image
+Image(file_name)
+
+object_categories = ['ak47', 'american-flag', 'backpack', 'baseball-bat', 'baseball-glove', 'basketball-hoop', 'bat', 'bathtub', 'bear', 'beer-mug', 'billiards', 'binoculars', 'birdbath', 'blimp', 'bonsai-101', 'boom-box', 'bowling-ball', 'bowling-pin', 'boxing-glove', 'brain-101', 'breadmaker', 'buddha-101', 'bulldozer', 'butterfly', 'cactus', 'cake', 'calculator', 'camel', 'cannon', 'canoe', 'car-tire', 'cartman', 'cd', 'centipede', 'cereal-box', 'chandelier-101', 'chess-board', 'chimp', 'chopsticks', 'cockroach', 'coffee-mug', 'coffin', 'coin', 'comet', 'computer-keyboard', 'computer-monitor', 'computer-mouse', 'conch', 'cormorant', 'covered-wagon', 'cowboy-hat', 'crab-101', 'desk-globe', 'diamond-ring', 'dice', 'dog', 'dolphin-101', 'doorknob', 'drinking-straw', 'duck', 'dumb-bell', 'eiffel-tower', 'electric-guitar-101', 'elephant-101', 'elk', 'ewer-101', 'eyeglasses', 'fern', 'fighter-jet', 'fire-extinguisher', 'fire-hydrant', 'fire-truck', 'fireworks', 'flashlight', 'floppy-disk', 'football-helmet', 'french-horn', 'fried-egg', 'frisbee', 'frog', 'frying-pan', 'galaxy', 'gas-pump', 'giraffe', 'goat', 'golden-gate-bridge', 'goldfish', 'golf-ball', 'goose', 'gorilla', 'grand-piano-101', 'grapes', 'grasshopper', 'guitar-pick', 'hamburger', 'hammock', 'harmonica', 'harp', 'harpsichord', 'hawksbill-101', 'head-phones', 'helicopter-101', 'hibiscus', 'homer-simpson', 'horse', 'horseshoe-crab', 'hot-air-balloon', 'hot-dog', 'hot-tub', 'hourglass', 'house-fly', 'human-skeleton', 'hummingbird', 'ibis-101', 'ice-cream-cone', 'iguana', 'ipod', 'iris', 'jesus-christ', 'joy-stick', 'kangaroo-101', 'kayak', 'ketch-101', 'killer-whale', 'knife', 'ladder', 'laptop-101', 'lathe', 'leopards-101', 'license-plate', 'lightbulb', 'light-house', 'lightning', 'llama-101', 'mailbox', 'mandolin', 'mars', 'mattress', 'megaphone', 'menorah-101', 'microscope', 'microwave', 'minaret', 'minotaur', 'motorbikes-101', 'mountain-bike', 'mushroom', 'mussels', 'necktie', 'octopus', 'ostrich', 'owl', 'palm-pilot', 'palm-tree', 'paperclip', 'paper-shredder', 'pci-card', 'penguin', 'people', 'pez-dispenser', 'photocopier', 'picnic-table', 'playing-card', 'porcupine', 'pram', 'praying-mantis', 'pyramid', 'raccoon', 'radio-telescope', 'rainbow', 'refrigerator', 'revolver-101', 'rifle', 'rotary-phone', 'roulette-wheel', 'saddle', 'saturn', 'school-bus', 'scorpion-101', 'screwdriver', 'segway', 'self-propelled-lawn-mower', 'sextant', 'sheet-music', 'skateboard', 'skunk', 'skyscraper', 'smokestack', 'snail', 'snake', 'sneaker', 'snowmobile', 'soccer-ball', 'socks', 'soda-can', 'spaghetti', 'speed-boat', 'spider', 'spoon', 'stained-glass', 'starfish-101', 'steering-wheel', 'stirrups', 'sunflower-101', 'superman', 'sushi', 'swan', 'swiss-army-knife', 'sword', 'syringe', 'tambourine', 'teapot', 'teddy-bear', 'teepee', 'telephone-box', 'tennis-ball', 'tennis-court', 'tennis-racket', 'theodolite', 'toaster', 'tomato', 'tombstone', 'top-hat', 'touring-bike', 'tower-pisa', 'traffic-light', 'treadmill', 'triceratops', 'tricycle', 'trilobite-101', 'tripod', 't-shirt', 'tuning-fork', 'tweezer', 'umbrella-101', 'unicorn', 'vcr', 'video-projector', 'washing-machine', 'watch-101', 'waterfall', 'watermelon', 'welding-mask', 'wheelbarrow', 'windmill', 'wine-bottle', 'xylophone', 'yarmulke', 'yo-yo', 'zebra', 'airplanes-101', 'car-side-101', 'faces-easy-101', 'greyhound', 'tennis-shoes', 'toad', 'clutter']
+
+import json
 import numpy as np
-import requests
-import matplotlib.pyplot as plt
-import matplotlib.image as mpimg
-import sys
-import datetime
-from tensorflow import keras
-from tensorflow.keras.models import Model
-import tensorflow as tf
-from PIL import Image
+
+# Load test image from file
+with open(file_name, 'rb') as f:
+    payload = f.read()
+    payload = bytearray(payload)
+
+# Set content type
+ic_predictor.content_type = 'application/x-image'
+
+# Predict image and print JSON predicton
+result = json.loads(ic_predictor.predict(payload))
+
+# Print top class
+index = np.argmax(result)
+print("Result: label - " + object_categories[index] + ", probability - " + str(result[index]))
+
+ic_predictor.delete_endpoint()
 
 
-url_pikachu = r'https://github.com/DocCreeps/IaForAWS/blob/main/pikachu.png?raw=true'
-resp = requests.get(url_pikachu, stream=True).raw
-image_array_pikachu = np.asarray(bytearray(resp.read()), dtype="uint8")
-print(f'Shape of the image {image_array_pikachu.shape}')
-image_pikachu = cv2.imdecode(image_array_pikachu, cv2.IMREAD_COLOR)
-plt.axis('off')
-plt.imshow(cv2.cvtColor(image_pikachu, cv2.COLOR_BGR2RGB))
-plt.show()
 
-url_rondoudou = r'https://github.com/DocCreeps/IaForAWS/blob/main/rondoudou.png?raw=true'
-resp = requests.get(url_rondoudou, stream=True).raw
-image_array_rondoudou = np.asarray(bytearray(resp.read()), dtype="uint8")
-print(f'Shape of the image {image_array_rondoudou.shape}')
-image_rondoudou = cv2.imdecode(image_array_rondoudou, cv2.IMREAD_COLOR)
-plt.axis('off')
-plt.imshow(cv2.cvtColor(image_rondoudou, cv2.COLOR_BGR2RGB))
-plt.show()
-
-res = cv2.resize(image_pikachu , dsize=(40,40), interpolation=cv2.INTER_CUBIC)
-print(res.shape)
-res = cv2.cvtColor(res,cv2.COLOR_RGB2GRAY) #TO 3D to 1D
-print(res.shape)
-res = cv2.threshold(res, 127, 255, cv2.THRESH_BINARY)[1]
-d = res
-for row in range(0,40):
-    for col in range(0,40):
-        print('%03d ' %d[row][col],end=' ')
-    print('')
-plt.imshow(cv2.cvtColor(res, cv2.COLOR_BGR2RGB))
-plt.axis('off')
-plt.show()
-
-res2 = cv2.resize(image_rondoudou , dsize=(40,40), interpolation=cv2.INTER_CUBIC)
-print(res2.shape)
-res2 = cv2.cvtColor(res2,cv2.COLOR_RGB2GRAY) #TO 3D to 1D
-print(res2.shape)
-res2 = cv2.threshold(res2, 127, 255, cv2.THRESH_BINARY)[1]
-d = res2
-for row in range(0,40):
-    for col in range(0,40):
-        print('%03d ' %d[row][col],end=' ')
-    print('')
-plt.imshow(cv2.cvtColor(res2, cv2.COLOR_BGR2RGB))
-plt.axis('off')
-plt.show()
-
-
-img_bw = cv2.imdecode(image_array_pikachu, cv2.IMREAD_GRAYSCALE)
-(thresh, img_bw) = cv2.threshold(img_bw, 127, 255, cv2.THRESH_BINARY)
-plt.axis('off')
-plt.imshow(cv2.cvtColor(img_bw, cv2.COLOR_BGR2RGB))
-
-
-img_bw2 = cv2.imdecode(image_array_rondoudou, cv2.IMREAD_GRAYSCALE)
-(thresh, img_bw2) = cv2.threshold(img_bw2, 127, 255, cv2.THRESH_BINARY)
-plt.axis('off')
-plt.imshow(cv2.cvtColor(img_bw2, cv2.COLOR_BGR2RGB))
-
-kernel = np.matrix([[0,0,0],[0,1,0],[0,0,0]])
-print(kernel)
-img_1 = cv2.filter2D(img_bw, -1, kernel)
-plt.axis('off')
-plt.imshow(cv2.cvtColor(img_1, cv2.COLOR_BGR2RGB))
-
-kernel = np.matrix([[-10,0,10],[-10,0,10],[-10,0,10]])
-print(kernel)
-img_1 = cv2.filter2D(img_bw, -1, kernel)
-plt.axis('off')
-plt.imshow(cv2.cvtColor(img_1, cv2.COLOR_BGR2RGB))
-
-kernel = np.matrix([[10,10,10],[0,0,0],[-10,-10,-10]])
-print(kernel)
-img_1 = cv2.filter2D(img_bw, -1, kernel)
-plt.axis('off')
-plt.imshow(cv2.cvtColor(img_1, cv2.COLOR_BGR2RGB))
-
-data_dir = tf.keras.utils.get_file("dataset", origin="https://github.com/DocCreeps/IaForAWS/tree/main/dataset?raw=true")
-
-data_dir = pathlib.Path('dataset')
-print(data_dir)
-print(os.path.abspath(data_dir))
-
-image_count = len(list(data_dir.glob('*/*')))
-print(image_count)
-
-
-batch_size = 3
-img_height = 200
-img_width = 200
-
-train_data = tf.keras.preprocessing.image_dataset_from_directory(
-  data_dir,
-  validation_split=0.2,
-  subset="training",
-  seed=42,
-  image_size=(img_height, img_width),
-  batch_size=batch_size,
-  )
-
-val_data = tf.keras.preprocessing.image_dataset_from_directory(
-  data_dir,
-  validation_split=0.2,
-  subset="validation",
-  seed=42,
-  image_size=(img_height, img_width),
-  batch_size=batch_size)
-
-class_names = val_data.class_names
-print(class_names)
-
-plt.figure(figsize=(10, 10))
-for images, labels in train_data.take(1):
-  for i in range(3):
-    ax = plt.subplot(1, 3, i + 1)
-    plt.imshow(images[i].numpy().astype("uint8"))
-    plt.title(class_names[labels[i]])
-    plt.axis("off")
-
-    from tensorflow.keras import layers
-
-    num_classes = 2
-
-    model = tf.keras.Sequential([
-        layers.experimental.preprocessing.Rescaling(1. / 255),
-        layers.Conv2D(128, 4, activation='relu'),
-        layers.MaxPooling2D(),
-        layers.Conv2D(64, 4, activation='relu'),
-        layers.MaxPooling2D(),
-        layers.Conv2D(32, 4, activation='relu'),
-        layers.MaxPooling2D(),
-        layers.Conv2D(16, 4, activation='relu'),
-        layers.MaxPooling2D(),
-        layers.Flatten(),
-        layers.Dense(64, activation='relu'),
-        layers.Dense(num_classes, activation='softmax')
-    ])
-
-    model.compile(optimizer='adam',
-                  loss=tf.losses.SparseCategoricalCrossentropy(from_logits=True),
-                  metrics=['accuracy'], )
-
-    logdir = "logs"
-
-    tensorboard_callback = keras.callbacks.TensorBoard(log_dir=logdir, histogram_freq=1, write_images=logdir,
-                                                       embeddings_data=train_data)
-
-    model.fit(
-        train_data,
-        validation_data=val_data,
-        epochs=2,
-        callbacks=[tensorboard_callback]
-    )
-
-imguser =
-imguser.show()
-
-file_to_predict = imguser
-for file_ in file_to_predict:
-    image_to_predict = cv2.imread(file_,cv2.IMREAD_COLOR)
-    plt.imshow(cv2.cvtColor(image_to_predict, cv2.COLOR_BGR2RGB))
-    plt.show()
-    img_to_predict = np.expand_dims(cv2.resize(image_to_predict,(200,200)), axis=0)
-    res = model.predict_classes(img_to_predict)
-    print(model.predict_classes(img_to_predict))
-    print(model.predict(img_to_predict))
-    if res == 1:
-        plt.imshow(cv2.cvtColor(image_pikachu, cv2.COLOR_BGR2RGB))
-        plt.show()
-        print("IT'S A PIKACHU !")
-    elif res == 0 :
-        plt.imshow(cv2.cvtColor(image_rondoudou, cv2.COLOR_BGR2RGB))
-        plt.show()
-        print("IT'S A RONDOUDOU !")
